@@ -5,7 +5,6 @@ exports.assignEngineer = async (req, res) => {
   try {
     const { engineers, project, weeklyHours, startDate, endDate } = req.body;
 
-    // Check that engineers array is not empty
     if (!Array.isArray(engineers) || engineers.length === 0) {
       return res.status(400).json({ msg: "Engineers list is required" });
     }
@@ -74,27 +73,41 @@ exports.deleteAssignment = async (req, res) => {
 };
 
 exports.addEngineerToAssignment = async (req, res) => {
+  const { engineerId, weeklyHours } = req.body;
   const { assignmentId } = req.params;
-  const { engineerId } = req.body;
 
   try {
-    const assignment = await Assignment.findById(assignmentId);
-    if (!assignment) {
-      return res.status(404).json({ msg: "Assignment not found" });
+    const engineer = await User.findById(engineerId);
+    const allAssignments = await Assignment.find({
+      engineers: engineerId,
+    });
+
+    const today = new Date();
+    const activeAssignments = allAssignments.filter(
+      (a) => new Date(a.startDate) <= today && new Date(a.endDate) >= today
+    );
+
+    const currentLoad = activeAssignments.reduce(
+      (sum, a) => sum + (a.weeklyHours || 0),
+      0
+    );
+
+    if (currentLoad + weeklyHours > engineer.totalCapacity) {
+      return res
+        .status(400)
+        .json({ msg: "Engineer exceeds capacity with this assignment." });
     }
 
-    // Checking for duplicates
-    if (assignment.engineers.includes(engineerId)) {
-      return res.status(400).json({ msg: "Engineer already assigned" });
-    }
+    // Otherwise, update the assignment
+    const assignment = await Assignment.findByIdAndUpdate(
+      assignmentId,
+      { $addToSet: { engineers: engineerId } }, // prevent duplicates
+      { new: true }
+    );
 
-    assignment.engineers.push(engineerId);
-    await assignment.save();
-
-    res.status(200).json({ msg: "Engineer added", assignment });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ msg: "Error adding engineer", error: error.message });
+    res.json(assignment);
+  } catch (err) {
+    console.error("Add Engineer Error:", err);
+    res.status(500).json({ msg: "Internal server error" });
   }
 };
